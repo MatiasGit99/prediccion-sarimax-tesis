@@ -7,6 +7,26 @@
 # Descripción: Pipeline completo de series temporales con SARIMAX,
 #              validación cruzada rolling, múltiples gráficos para tesis
 #              e informes detallados en CSV y texto.
+#
+# Archivos de entrada requeridos (en /kaggle/input/dataset-sarimax-cemento/):
+#   - precios_cemento_interpolado.csv   : Serie histórica del precio del cemento
+#                                         más indicador binario de cuarentena COVID-19.
+#   - nivel_rio_minimo_mensual.csv      : Nivel mínimo mensual del río, cubre tanto
+#                                         el período histórico (para unirse al dataset
+#                                         de cemento) como el período futuro (usado
+#                                         como variable exógena en el pronóstico).
+#
+# Nota sobre selección de hiperparámetros SARIMAX:
+#   A diferencia de modelos de ML (redes neuronales, XGBoost), SARIMAX NO usa
+#   trials aleatorios/bayesianos. El espacio de búsqueda es discreto y pequeño:
+#     p, q ∈ [0, 3]   (componentes AR y MA ordinarios)
+#     P, Q ∈ [0, 2]   (componentes AR y MA estacionales)
+#     d, D            (detectados automáticamente via tests ADF y OCSB)
+#   auto_arima implementa el algoritmo stepwise de Hyndman-Khandakar: parte de
+#   un modelo base y evalúa modelos vecinos (±1 en p/q/P/Q), moviéndose al
+#   vecino con menor AIC hasta alcanzar un mínimo local. Típicamente evalúa
+#   entre 15 y 30 modelos candidatos (visible con trace=True).
+#   Rangos actuales: max_p=5, max_q=5, max_P=3, max_Q=3.
 # =============================================================================
 
 # =============================================================================
@@ -607,17 +627,34 @@ def buscar_parametros_auto(
     """
     Busca los órdenes ARIMA y estacionales óptimos usando pmdarima.auto_arima.
 
-    El algoritmo stepwise de Hyndman-Khandakar reduce el espacio de búsqueda
-    evaluando modelos vecinos al orden actual según el criterio AIC, hasta
-    encontrar un mínimo local. Es considerablemente más rápido que la
-    búsqueda por grilla exhaustiva con calidad similar.
+    Mecanismo de selección (stepwise de Hyndman-Khandakar):
+    ──────────────────────────────────────────────────────────
+    SARIMAX NO utiliza trials aleatorios ni optimización bayesiana.
+    El espacio de hiperparámetros es discreto y acotado:
 
-    Parámetros explorados:
-      p, q ∈ [0, 3]  (componentes autorregresivo y media móvil)
-      d       → detectado automáticamente mediante test ADF
-      P, Q ∈ [0, 2]  (componentes estacionales)
-      D       → detectado automáticamente mediante test OCSB
-      m = 12         (período estacional mensual)
+      p, q ∈ [0, 5]   → componente autorregresivo y media móvil ordinarios
+      d               → detectado automáticamente via test ADF
+      P, Q ∈ [0, 3]   → componentes AR y MA estacionales
+      D               → detectado automáticamente via test OCSB
+      m = 12          → período estacional (mensual)
+
+    El algoritmo:
+      1. Determina d y D mediante tests estadísticos (no por búsqueda).
+      2. Parte de un modelo base (típicamente ARIMA(2,d,2)(1,D,1)₁₂).
+      3. Evalúa modelos vecinos (variando p, q, P, Q en ±1).
+      4. Se desplaza al vecino con menor AIC.
+      5. Repite hasta que ningún vecino mejora → mínimo local.
+
+    Con stepwise=True se evalúan típicamente entre 15 y 30 modelos
+    (visible en la salida de trace=True), frente a cientos en búsqueda
+    exhaustiva (stepwise=False), con resultados equivalentes en la práctica.
+
+    Nota sobre el rango de búsqueda (max_p=5, max_q=5, max_P=3, max_Q=3):
+      Ampliar el rango respecto a valores anteriores (3/3/2/2) hace elegibles
+      modelos de mayor orden sin forzarlos: AIC penaliza la complejidad y el
+      algoritmo solo los seleccionará si mejoran genuinamente el ajuste neto.
+      El límite de 5/3 es razonable para ~139 observaciones mensuales
+      (regla orientativa: ≥ 10 observaciones por parámetro estimado).
     """
     print(f"\n{'━'*60}")
     print("  PASO 4 ▸ Búsqueda de parámetros óptimos (auto_arima)")
@@ -631,12 +668,12 @@ def buscar_parametros_auto(
     modelo_auto = auto_arima(
         Y_train,
         exogenous      = X_train,
-        start_p        = 0, max_p = 3,
-        start_q        = 0, max_q = 3,
-        d              = None,         # Detección automática
-        start_P        = 0, max_P = 2,
-        start_Q        = 0, max_Q = 2,
-        D              = None,         # Detección automática
+        start_p        = 0, max_p = 5,  # Ampliado de 3 → 5
+        start_q        = 0, max_q = 5,  # Ampliado de 3 → 5
+        d              = None,          # Detección automática via test ADF
+        start_P        = 0, max_P = 3,  # Ampliado de 2 → 3
+        start_Q        = 0, max_Q = 3,  # Ampliado de 2 → 3
+        D              = None,          # Detección automática via test OCSB
         seasonal       = True,
         m              = m,
         stepwise       = True,
@@ -1420,11 +1457,17 @@ def main() -> dict:
 
     Pasos:
       1. Verificar hardware disponible (GPU/CPU)
-      2. Cargar datos históricos (precio cemento + exógenas)
-      3. Cargar variables exógenas futuras (nivel del río predicho)
+      2. Cargar datos históricos del precio del cemento (precios_cemento_interpolado.csv)
+      3. Cargar nivel del río completo (nivel_rio_minimo_mensual.csv):
+           3a. Unir el tramo histórico al dataset de cemento mediante join temporal.
+           3b. Separar automáticamente las fechas posteriores al último dato
+               histórico como variables exógenas futuras para el pronóstico.
       4. Análisis exploratorio: tests de estacionariedad + 5 gráficos EDA
       5. División train/test (N_TEST meses para evaluación)
       6. Búsqueda automática de parámetros SARIMAX con auto_arima
+           Algoritmo stepwise de Hyndman-Khandakar: evalúa modelos vecinos
+           (±1 en p/q/P/Q) minimizando AIC; d y D se detectan por tests
+           estadísticos (ADF y OCSB). No usa trials aleatorios.
       7. Entrenamiento del modelo de validación (sobre TRAIN) + métricas TEST
       8. Entrenamiento del modelo final (sobre TODOS los datos)
       9. Pronóstico futuro con intervalos de confianza al 95%
@@ -1453,6 +1496,10 @@ def main() -> dict:
     print(f"{'━'*60}")
     print("  PASO 3 ▸ Integrando nivel del río con datos históricos")
     print(f"{'━'*60}")
+    # Eliminar Nivel_Rio del cemento si ya existía, para reemplazarlo con el nuevo archivo
+    if "Nivel_Rio" in df_cemento.columns:
+        print("  ℹ  Nivel_Rio encontrado en el CSV de cemento → se reemplaza con el nuevo archivo.")
+        df_cemento = df_cemento.drop(columns=["Nivel_Rio"])
     df_hist = df_cemento.join(df_nivel_rio[["Nivel_Rio"]], how="left")
     n_nan_nivel = df_hist["Nivel_Rio"].isnull().sum()
     if n_nan_nivel > 0:
