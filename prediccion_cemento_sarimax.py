@@ -1285,90 +1285,165 @@ def grafico_12_escenarios_covid(
     dir_salida: str,
 ) -> str:
     """
-    Gráfico 12: Comparación de dos escenarios de pronóstico en el mismo gráfico.
+    Gráfico 12: Comparación de dos escenarios de pronóstico — layout de 3 paneles.
 
     El modelo SARIMAX genera automáticamente dos pronósticos futuros usando el
     mismo nivel del río pero variando el indicador de cuarentena:
       - Escenario Sin COVID  (Cuarentena = 0): condiciones normales de mercado.
       - Escenario Con COVID  (Cuarentena = 1): condiciones de cuarentena activa.
 
-    Panel izquierdo : contexto histórico reciente + ambos pronósticos.
-    Panel derecho   : zoom sobre el período de pronóstico + área de diferencia
-                      entre escenarios (impacto neto del indicador COVID).
+    Diseño de 3 paneles para maximizar la visibilidad de ambos escenarios:
+      Panel superior (ancho completo):
+        Histórico reciente + ambas líneas de pronóstico sin IC, con marcadores
+        grandes y colores de alto contraste. Etiquetas de valor sobre cada punto.
+      Panel inferior izquierdo:
+        Zoom sobre el período de pronóstico con IC 95% de ambos escenarios,
+        y y-axis ajustado al rango real de las predicciones (sin espacio vacío).
+      Panel inferior derecho:
+        Diferencia absoluta (Con COVID − Sin COVID) como gráfico de barras
+        con su propia escala, garantizando visibilidad incluso si la diferencia
+        es pequeña respecto al precio absoluto.
     """
-    COLOR_SIN = COLORES["train"]     # Azul oscuro → sin COVID
-    COLOR_CON = COLORES["forecast"]  # Rojo oscuro  → con COVID
+    COLOR_SIN  = "#1565C0"   # Azul intenso  → Sin COVID
+    COLOR_CON  = "#B71C1C"   # Rojo intenso  → Con COVID
+    COLOR_DIFF = "#6A1B9A"   # Violeta        → Diferencia
 
     n_hist = min(48, len(Y_hist))
     Y_rec  = Y_hist.iloc[-n_hist:]
 
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    diferencia = forecast_con["Media"].values - forecast_sin["Media"].values
+    diff_serie = pd.Series(diferencia, index=forecast_sin.index)
+
+    fig = plt.figure(figsize=(18, 13))
     fig.suptitle(
         "Análisis de Escenarios: Sin COVID (Cuarentena=0) vs Con COVID (Cuarentena=1)\n"
-        "Modelo SARIMAX — Pronóstico bajo distintas condiciones de cuarentena",
-        fontsize=12, fontweight="bold",
+        "Modelo SARIMAX — Impacto del indicador de cuarentena sobre el precio predicho",
+        fontsize=13, fontweight="bold", y=0.99,
+    )
+    gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.42, wspace=0.32,
+                           height_ratios=[1.1, 1])
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PANEL SUPERIOR — histórico reciente + ambos pronósticos (sin IC)
+    # ══════════════════════════════════════════════════════════════════════════
+    ax_top = fig.add_subplot(gs[0, :])
+
+    ax_top.plot(Y_rec.index, Y_rec.values,
+                color=COLORES["neutral"], lw=1.8, alpha=0.5,
+                label=f"Histórico (últimos {n_hist} meses)", zorder=2)
+
+    # Sin COVID
+    ax_top.plot(forecast_sin.index, forecast_sin["Media"],
+                color=COLOR_SIN, lw=3, marker="o", ms=7,
+                label="Sin COVID — Cuarentena=0", zorder=5)
+    # Etiquetas de valor cada 2 puntos
+    for i, (idx, val) in enumerate(forecast_sin["Media"].items()):
+        if i % 2 == 0:
+            ax_top.annotate(f"{val:,.0f}",
+                            xy=(idx, val), xytext=(0, 10),
+                            textcoords="offset points",
+                            fontsize=7.5, ha="center",
+                            color=COLOR_SIN, fontweight="bold")
+
+    # Con COVID
+    ax_top.plot(forecast_con.index, forecast_con["Media"],
+                color=COLOR_CON, lw=3, marker="s", ms=7, ls="--",
+                label="Con COVID — Cuarentena=1", zorder=5)
+    for i, (idx, val) in enumerate(forecast_con["Media"].items()):
+        if i % 2 != 0:
+            ax_top.annotate(f"{val:,.0f}",
+                            xy=(idx, val), xytext=(0, -15),
+                            textcoords="offset points",
+                            fontsize=7.5, ha="center",
+                            color=COLOR_CON, fontweight="bold")
+
+    ax_top.axvline(forecast_sin.index[0],
+                   color="black", ls=":", lw=1.5, alpha=0.6, label="Inicio pronóstico")
+    ax_top.set_title("Contexto Histórico + Ambos Escenarios de Pronóstico", fontsize=11)
+    ax_top.set_ylabel("Precio del Cemento ($/bolsa)", fontsize=10)
+    ax_top.set_xlabel("Fecha", fontsize=10)
+    ax_top.legend(fontsize=9, framealpha=0.92, loc="upper left")
+    plt.setp(ax_top.xaxis.get_majorticklabels(), rotation=20)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PANEL INFERIOR IZQUIERDO — zoom pronóstico con IC 95%
+    # ══════════════════════════════════════════════════════════════════════════
+    ax_zoom = fig.add_subplot(gs[1, 0])
+
+    # IC 95%
+    ax_zoom.fill_between(forecast_sin.index,
+                         forecast_sin["IC_Inferior"], forecast_sin["IC_Superior"],
+                         alpha=0.18, color=COLOR_SIN, label="IC 95% Sin COVID")
+    ax_zoom.fill_between(forecast_con.index,
+                         forecast_con["IC_Inferior"], forecast_con["IC_Superior"],
+                         alpha=0.18, color=COLOR_CON, label="IC 95% Con COVID")
+
+    # Líneas de pronóstico
+    ax_zoom.plot(forecast_sin.index, forecast_sin["Media"],
+                 color=COLOR_SIN, lw=2.5, marker="o", ms=6,
+                 label="Sin COVID — Cuarentena=0", zorder=4)
+    ax_zoom.plot(forecast_con.index, forecast_con["Media"],
+                 color=COLOR_CON, lw=2.5, marker="s", ms=6, ls="--",
+                 label="Con COVID — Cuarentena=1", zorder=4)
+
+    # Área entre medias para resaltar la separación
+    ax_zoom.fill_between(forecast_sin.index,
+                         forecast_sin["Media"], forecast_con["Media"],
+                         alpha=0.30, color=COLOR_DIFF, zorder=3)
+
+    # Y-axis ajustado al rango real de predicciones (sin espacio vacío)
+    y_min = min(forecast_sin["IC_Inferior"].min(), forecast_con["IC_Inferior"].min())
+    y_max = max(forecast_sin["IC_Superior"].max(), forecast_con["IC_Superior"].max())
+    margen = (y_max - y_min) * 0.08
+    ax_zoom.set_ylim(y_min - margen, y_max + margen)
+
+    ax_zoom.set_title("Zoom: Período de Pronóstico con IC 95%", fontsize=11)
+    ax_zoom.set_ylabel("Precio del Cemento ($/bolsa)", fontsize=10)
+    ax_zoom.set_xlabel("Fecha", fontsize=10)
+    ax_zoom.legend(fontsize=8.5, framealpha=0.92)
+    plt.setp(ax_zoom.xaxis.get_majorticklabels(), rotation=30)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # PANEL INFERIOR DERECHO — diferencia (Con − Sin) con escala propia
+    # ══════════════════════════════════════════════════════════════════════════
+    ax_diff = fig.add_subplot(gs[1, 1])
+
+    colores_barras = [COLOR_CON if d >= 0 else COLOR_SIN for d in diferencia]
+    barras = ax_diff.bar(range(len(diff_serie)), diferencia,
+                         color=colores_barras, alpha=0.80, width=0.7, zorder=3)
+    ax_diff.axhline(0, color="black", lw=1.0, zorder=4)
+    ax_diff.axhline(diferencia.mean(), color=COLOR_DIFF, lw=1.8, ls="--",
+                    label=f"Diferencia media: {diferencia.mean():+,.0f}")
+
+    # Etiquetas de valor sobre cada barra
+    for i, (barra, val) in enumerate(zip(barras, diferencia)):
+        offset = 1 if val >= 0 else -1
+        ax_diff.text(barra.get_x() + barra.get_width() / 2,
+                     val + offset * abs(diferencia).max() * 0.04,
+                     f"{val:+,.0f}",
+                     ha="center", va="bottom" if val >= 0 else "top",
+                     fontsize=7.5, color=COLOR_DIFF, fontweight="bold")
+
+    # Etiquetas del eje X con fechas
+    step_x = max(1, len(diff_serie) // 8)
+    ax_diff.set_xticks(range(0, len(diff_serie), step_x))
+    ax_diff.set_xticklabels(
+        [idx.strftime("%Y-%m") for idx in diff_serie.index[::step_x]],
+        rotation=30, fontsize=8,
     )
 
-    for ax_idx, ax in enumerate(axes):
-        # ── Histórico reciente ────────────────────────────────────────────────
-        ax.plot(Y_rec.index, Y_rec.values,
-                color=COLORES["neutral"], lw=1.5, alpha=0.55,
-                label=f"Histórico (últimos {n_hist} meses)")
+    ax_diff.set_title("Impacto COVID: Diferencia por Mes\n(Con COVID − Sin COVID)", fontsize=11)
+    ax_diff.set_ylabel("Diferencia en precio ($/bolsa)", fontsize=10)
+    ax_diff.set_xlabel("Fecha", fontsize=10)
+    ax_diff.legend(fontsize=9, framealpha=0.92)
 
-        # ── Escenario Sin COVID (Cuarentena = 0) ──────────────────────────────
-        ax.plot(forecast_sin.index, forecast_sin["Media"],
-                color=COLOR_SIN, lw=2.2, ls="--", marker="o", ms=4,
-                label="Sin COVID — Cuarentena=0", zorder=4)
-        ax.fill_between(forecast_sin.index,
-                        forecast_sin["IC_Inferior"], forecast_sin["IC_Superior"],
-                        alpha=0.12, color=COLOR_SIN, label="IC 95% (Sin COVID)")
+    leyenda_diff = [
+        Patch(fc=COLOR_CON, alpha=0.80, label="COVID eleva el precio"),
+        Patch(fc=COLOR_SIN, alpha=0.80, label="COVID reduce el precio"),
+    ]
+    ax_diff.legend(handles=leyenda_diff + ax_diff.get_legend_handles_labels()[0],
+                   fontsize=8.5, framealpha=0.92)
 
-        # ── Escenario Con COVID (Cuarentena = 1) ──────────────────────────────
-        ax.plot(forecast_con.index, forecast_con["Media"],
-                color=COLOR_CON, lw=2.2, ls="--", marker="s", ms=4,
-                label="Con COVID — Cuarentena=1", zorder=4)
-        ax.fill_between(forecast_con.index,
-                        forecast_con["IC_Inferior"], forecast_con["IC_Superior"],
-                        alpha=0.12, color=COLOR_CON, label="IC 95% (Con COVID)")
-
-        # ── Línea de inicio del pronóstico ────────────────────────────────────
-        ax.axvline(forecast_sin.index[0], color="gray", ls=":", lw=1.2, alpha=0.7)
-        ax.set_ylabel("Precio del Cemento", fontsize=10)
-        plt.setp(ax.xaxis.get_majorticklabels(), rotation=30)
-
-        if ax_idx == 0:
-            ax.set_title("Contexto Histórico + Ambos Escenarios", fontsize=11)
-            ax.set_xlabel("Fecha", fontsize=10)
-            ax.legend(fontsize=9, framealpha=0.9)
-        else:
-            # ── Panel derecho: zoom pronóstico + área de diferencia ───────────
-            ax.set_xlim(left=forecast_sin.index[0] - pd.DateOffset(months=1))
-            ax.set_title("Zoom: Período de Pronóstico + Impacto COVID", fontsize=11)
-            ax.set_xlabel("Fecha", fontsize=10)
-
-            # Área de diferencia (impacto neto del indicador COVID)
-            ax.fill_between(
-                forecast_sin.index,
-                forecast_sin["Media"], forecast_con["Media"],
-                alpha=0.25, color="#7B1FA2",
-                label="Diferencia entre escenarios (impacto COVID)",
-            )
-
-            # Etiquetas de diferencia en valores alternos
-            for i, idx in enumerate(forecast_sin.index):
-                if i % 2 == 0:
-                    diff = forecast_con.loc[idx, "Media"] - forecast_sin.loc[idx, "Media"]
-                    y_mid = (forecast_sin.loc[idx, "Media"] + forecast_con.loc[idx, "Media"]) / 2
-                    ax.annotate(
-                        f"{diff:+.0f}",
-                        xy=(idx, y_mid),
-                        xytext=(0, 0), textcoords="offset points",
-                        fontsize=7, ha="center", color="#7B1FA2", fontweight="bold",
-                    )
-
-            ax.legend(fontsize=9, framealpha=0.9)
-
-    plt.tight_layout()
     ruta = os.path.join(dir_salida, "12_escenarios_covid.png")
     plt.savefig(ruta, bbox_inches="tight")
     plt.close()
