@@ -1278,12 +1278,111 @@ def grafico_11_ajuste_vs_real(
     return ruta
 
 
+def grafico_12_escenarios_covid(
+    forecast_sin: pd.DataFrame,
+    forecast_con: pd.DataFrame,
+    Y_hist: pd.Series,
+    dir_salida: str,
+) -> str:
+    """
+    Gráfico 12: Comparación de dos escenarios de pronóstico en el mismo gráfico.
+
+    El modelo SARIMAX genera automáticamente dos pronósticos futuros usando el
+    mismo nivel del río pero variando el indicador de cuarentena:
+      - Escenario Sin COVID  (Cuarentena = 0): condiciones normales de mercado.
+      - Escenario Con COVID  (Cuarentena = 1): condiciones de cuarentena activa.
+
+    Panel izquierdo : contexto histórico reciente + ambos pronósticos.
+    Panel derecho   : zoom sobre el período de pronóstico + área de diferencia
+                      entre escenarios (impacto neto del indicador COVID).
+    """
+    COLOR_SIN = COLORES["train"]     # Azul oscuro → sin COVID
+    COLOR_CON = COLORES["forecast"]  # Rojo oscuro  → con COVID
+
+    n_hist = min(48, len(Y_hist))
+    Y_rec  = Y_hist.iloc[-n_hist:]
+
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+    fig.suptitle(
+        "Análisis de Escenarios: Sin COVID (Cuarentena=0) vs Con COVID (Cuarentena=1)\n"
+        "Modelo SARIMAX — Pronóstico bajo distintas condiciones de cuarentena",
+        fontsize=12, fontweight="bold",
+    )
+
+    for ax_idx, ax in enumerate(axes):
+        # ── Histórico reciente ────────────────────────────────────────────────
+        ax.plot(Y_rec.index, Y_rec.values,
+                color=COLORES["neutral"], lw=1.5, alpha=0.55,
+                label=f"Histórico (últimos {n_hist} meses)")
+
+        # ── Escenario Sin COVID (Cuarentena = 0) ──────────────────────────────
+        ax.plot(forecast_sin.index, forecast_sin["Media"],
+                color=COLOR_SIN, lw=2.2, ls="--", marker="o", ms=4,
+                label="Sin COVID — Cuarentena=0", zorder=4)
+        ax.fill_between(forecast_sin.index,
+                        forecast_sin["IC_Inferior"], forecast_sin["IC_Superior"],
+                        alpha=0.12, color=COLOR_SIN, label="IC 95% (Sin COVID)")
+
+        # ── Escenario Con COVID (Cuarentena = 1) ──────────────────────────────
+        ax.plot(forecast_con.index, forecast_con["Media"],
+                color=COLOR_CON, lw=2.2, ls="--", marker="s", ms=4,
+                label="Con COVID — Cuarentena=1", zorder=4)
+        ax.fill_between(forecast_con.index,
+                        forecast_con["IC_Inferior"], forecast_con["IC_Superior"],
+                        alpha=0.12, color=COLOR_CON, label="IC 95% (Con COVID)")
+
+        # ── Línea de inicio del pronóstico ────────────────────────────────────
+        ax.axvline(forecast_sin.index[0], color="gray", ls=":", lw=1.2, alpha=0.7)
+        ax.set_ylabel("Precio del Cemento", fontsize=10)
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=30)
+
+        if ax_idx == 0:
+            ax.set_title("Contexto Histórico + Ambos Escenarios", fontsize=11)
+            ax.set_xlabel("Fecha", fontsize=10)
+            ax.legend(fontsize=9, framealpha=0.9)
+        else:
+            # ── Panel derecho: zoom pronóstico + área de diferencia ───────────
+            ax.set_xlim(left=forecast_sin.index[0] - pd.DateOffset(months=1))
+            ax.set_title("Zoom: Período de Pronóstico + Impacto COVID", fontsize=11)
+            ax.set_xlabel("Fecha", fontsize=10)
+
+            # Área de diferencia (impacto neto del indicador COVID)
+            ax.fill_between(
+                forecast_sin.index,
+                forecast_sin["Media"], forecast_con["Media"],
+                alpha=0.25, color="#7B1FA2",
+                label="Diferencia entre escenarios (impacto COVID)",
+            )
+
+            # Etiquetas de diferencia en valores alternos
+            for i, idx in enumerate(forecast_sin.index):
+                if i % 2 == 0:
+                    diff = forecast_con.loc[idx, "Media"] - forecast_sin.loc[idx, "Media"]
+                    y_mid = (forecast_sin.loc[idx, "Media"] + forecast_con.loc[idx, "Media"]) / 2
+                    ax.annotate(
+                        f"{diff:+.0f}",
+                        xy=(idx, y_mid),
+                        xytext=(0, 0), textcoords="offset points",
+                        fontsize=7, ha="center", color="#7B1FA2", fontweight="bold",
+                    )
+
+            ax.legend(fontsize=9, framealpha=0.9)
+
+    plt.tight_layout()
+    ruta = os.path.join(dir_salida, "12_escenarios_covid.png")
+    plt.savefig(ruta, bbox_inches="tight")
+    plt.close()
+    print(f"  ✓ Guardado: {ruta}")
+    return ruta
+
+
 # =============================================================================
 # SECCIÓN 10: EXPORTACIÓN DE RESULTADOS
 # =============================================================================
 
 def guardar_resultados_csv(
     forecast_df: pd.DataFrame,
+    forecast_df_covid: pd.DataFrame,
     Y_test: pd.Series,
     test_pred: pd.Series,
     X_test: pd.DataFrame,
@@ -1291,30 +1390,48 @@ def guardar_resultados_csv(
     ruta_salida: str,
 ) -> dict:
     """
-    Guarda tres archivos CSV en /kaggle/working/:
+    Guarda cuatro archivos CSV en /kaggle/working/:
 
     1. pronostico_futuro_cemento.csv
-       → Pronóstico mensual futuro con media, intervalos de confianza,
-         nivel del río exógeno y clasificación Cuarentena_Covid (siempre 0
-         para períodos futuros).
+       → Pronóstico mensual futuro (Cuarentena=0): condiciones normales.
 
-    2. prediccion_conjunto_prueba.csv
+    2. pronostico_escenarios_covid.csv
+       → Comparación lado a lado de ambos escenarios (Cuarentena=0 y =1)
+         con la diferencia absoluta entre pronósticos para cada mes.
+
+    3. prediccion_conjunto_prueba.csv
        → Comparación real vs predicho para los N_TEST meses de evaluación,
-         incluyendo Cuarentena_Covid (1 = período con restricciones COVID,
-         0 = sin restricciones) para identificar el contexto de cada predicción.
+         incluyendo Cuarentena_Covid para identificar el contexto de cada mes.
 
-    3. metricas_modelo.csv
+    4. metricas_modelo.csv
        → Tabla resumen con todas las métricas de evaluación.
     """
     rutas = {}
 
-    # 1. Pronóstico futuro
+    # 1. Pronóstico futuro Sin COVID (Cuarentena = 0)
     p1 = os.path.join(ruta_salida, "pronostico_futuro_cemento.csv")
     forecast_df.to_csv(p1, encoding="utf-8")
     rutas["pronostico"] = p1
-    print(f"  ✓ Pronóstico guardado : {p1}")
+    print(f"  ✓ Pronóstico (Sin COVID) guardado : {p1}")
 
-    # 2. Predicciones de prueba con errores y clasificación COVID
+    # 2. Escenarios comparados: Sin COVID vs Con COVID
+    df_escenarios = pd.DataFrame({
+        "Media_Sin_Covid"    : forecast_df["Media"].values,
+        "IC_Inf_Sin_Covid"   : forecast_df["IC_Inferior"].values,
+        "IC_Sup_Sin_Covid"   : forecast_df["IC_Superior"].values,
+        "Media_Con_Covid"    : forecast_df_covid["Media"].values,
+        "IC_Inf_Con_Covid"   : forecast_df_covid["IC_Inferior"].values,
+        "IC_Sup_Con_Covid"   : forecast_df_covid["IC_Superior"].values,
+        "Diferencia_Covid"   : forecast_df_covid["Media"].values - forecast_df["Media"].values,
+        "Nivel_Rio_Exog"     : forecast_df["Nivel_Rio_Exog"].values,
+    }, index=forecast_df.index)
+    df_escenarios.index.name = "Fecha"
+    p2_esc = os.path.join(ruta_salida, "pronostico_escenarios_covid.csv")
+    df_escenarios.to_csv(p2_esc, encoding="utf-8")
+    rutas["escenarios"] = p2_esc
+    print(f"  ✓ Escenarios COVID guardados      : {p2_esc}")
+
+    # 3. Predicciones de prueba con errores y clasificación COVID
     errores = Y_test.values - test_pred.values
     df_prueba = pd.DataFrame({
         "Precio_Real"           : Y_test.values,
@@ -1331,7 +1448,7 @@ def guardar_resultados_csv(
     rutas["prueba"] = p2
     print(f"  ✓ Predicciones prueba : {p2}")
 
-    # 3. Métricas
+    # 4. Métricas
     df_met = pd.DataFrame([metricas])
     p3 = os.path.join(ruta_salida, "metricas_modelo.csv")
     df_met.to_csv(p3, index=False, encoding="utf-8")
@@ -1614,8 +1731,34 @@ def main() -> dict:
     }, index=df_future_exog.index)
     forecast_df.index.name = "Fecha"
 
-    print("\n  Pronóstico futuro:")
+    print("\n  Pronóstico futuro (Sin COVID — Cuarentena=0):")
     print(forecast_df.round(4).to_string())
+
+    # ── Escenario alternativo: Con COVID activo (Cuarentena = 1) ─────────────
+    # Se usa el mismo nivel del río futuro pero con cuarentena forzada a 1
+    # para cuantificar el impacto del indicador COVID sobre el precio predicho.
+    df_future_exog_covid = df_future_exog.copy()
+    df_future_exog_covid["Cuarentena"] = 1
+
+    forecast_result_covid = final_res.get_forecast(
+        steps=len(df_future_exog_covid), exog=df_future_exog_covid,
+    )
+    forecast_media_covid = forecast_result_covid.predicted_mean
+    forecast_ic_covid    = forecast_result_covid.conf_int(alpha=ALPHA_IC)
+    forecast_media_covid.index = df_future_exog_covid.index
+    forecast_ic_covid.index    = df_future_exog_covid.index
+
+    forecast_df_covid = pd.DataFrame({
+        "Media"           : forecast_media_covid.values,
+        "IC_Inferior"     : forecast_ic_covid.iloc[:, 0].values,
+        "IC_Superior"     : forecast_ic_covid.iloc[:, 1].values,
+        "Nivel_Rio_Exog"  : df_future_exog_covid["Nivel_Rio"].values,
+        "Cuarentena_Covid": df_future_exog_covid["Cuarentena"].values,
+    }, index=df_future_exog_covid.index)
+    forecast_df_covid.index.name = "Fecha"
+
+    print("\n  Pronóstico futuro (Con COVID — Cuarentena=1):")
+    print(forecast_df_covid.round(4).to_string())
 
     # ── Paso 10: Validación rolling ──────────────────────────────────────────
     n_initial_rolling = max(int(len(Y_train) * 0.75), 24)
@@ -1645,6 +1788,7 @@ def main() -> dict:
     grafico_09_pronostico_ic(forecast_df, endogena_Y, DIR_GRAFICOS)
     grafico_10_rolling_forecast(df_rolling, endogena_Y, DIR_GRAFICOS)
     grafico_11_ajuste_vs_real(endogena_Y, final_res, DIR_GRAFICOS)
+    grafico_12_escenarios_covid(forecast_df, forecast_df_covid, endogena_Y, DIR_GRAFICOS)
 
     # ── Paso 12: Exportar resultados ─────────────────────────────────────────
     print(f"\n{'━'*60}")
@@ -1652,7 +1796,7 @@ def main() -> dict:
     print(f"{'━'*60}")
 
     guardar_resultados_csv(
-        forecast_df, Y_test, test_pred, X_test, metricas_test, RUTA_SALIDA,
+        forecast_df, forecast_df_covid, Y_test, test_pred, X_test, metricas_test, RUTA_SALIDA,
     )
     generar_informe_texto(
         metricas_test, metricas_rolling,
