@@ -1286,6 +1286,7 @@ def guardar_resultados_csv(
     forecast_df: pd.DataFrame,
     Y_test: pd.Series,
     test_pred: pd.Series,
+    X_test: pd.DataFrame,
     metricas: dict,
     ruta_salida: str,
 ) -> dict:
@@ -1293,10 +1294,14 @@ def guardar_resultados_csv(
     Guarda tres archivos CSV en /kaggle/working/:
 
     1. pronostico_futuro_cemento.csv
-       → Pronóstico mensual futuro con media e intervalos de confianza.
+       → Pronóstico mensual futuro con media, intervalos de confianza,
+         nivel del río exógeno y clasificación Cuarentena_Covid (siempre 0
+         para períodos futuros).
 
     2. prediccion_conjunto_prueba.csv
-       → Comparación real vs predicho para los N_TEST meses de evaluación.
+       → Comparación real vs predicho para los N_TEST meses de evaluación,
+         incluyendo Cuarentena_Covid (1 = período con restricciones COVID,
+         0 = sin restricciones) para identificar el contexto de cada predicción.
 
     3. metricas_modelo.csv
        → Tabla resumen con todas las métricas de evaluación.
@@ -1309,11 +1314,12 @@ def guardar_resultados_csv(
     rutas["pronostico"] = p1
     print(f"  ✓ Pronóstico guardado : {p1}")
 
-    # 2. Predicciones de prueba con errores
+    # 2. Predicciones de prueba con errores y clasificación COVID
     errores = Y_test.values - test_pred.values
     df_prueba = pd.DataFrame({
         "Precio_Real"           : Y_test.values,
         "Precio_Predicho"       : test_pred.values,
+        "Cuarentena_Covid"      : X_test["Cuarentena"].values,
         "Error_Absoluto"        : errores,
         "Error_Porcentual_pct"  : np.abs(errores / Y_test.values) * 100,
         "Error_Relativo_pct"    : errores / Y_test.values * 100,
@@ -1600,10 +1606,11 @@ def main() -> dict:
     forecast_ic.index    = df_future_exog.index
 
     forecast_df = pd.DataFrame({
-        "Media"       : forecast_media.values,
-        "IC_Inferior" : forecast_ic.iloc[:, 0].values,
-        "IC_Superior" : forecast_ic.iloc[:, 1].values,
+        "Media"          : forecast_media.values,
+        "IC_Inferior"    : forecast_ic.iloc[:, 0].values,
+        "IC_Superior"    : forecast_ic.iloc[:, 1].values,
         "Nivel_Rio_Exog" : df_future_exog["Nivel_Rio"].values,
+        "Cuarentena_Covid" : df_future_exog["Cuarentena"].values,
     }, index=df_future_exog.index)
     forecast_df.index.name = "Fecha"
 
@@ -1645,7 +1652,7 @@ def main() -> dict:
     print(f"{'━'*60}")
 
     guardar_resultados_csv(
-        forecast_df, Y_test, test_pred, metricas_test, RUTA_SALIDA,
+        forecast_df, Y_test, test_pred, X_test, metricas_test, RUTA_SALIDA,
     )
     generar_informe_texto(
         metricas_test, metricas_rolling,
