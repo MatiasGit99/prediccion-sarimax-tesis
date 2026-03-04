@@ -1,0 +1,40 @@
+7.8s 1 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+7.8s 2 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+7.8s 3 0.00s - to python to disable frozen modules.
+7.8s 4 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+8.4s 5 0.00s - Debugger warning: It seems that frozen modules are being used, which may
+8.4s 6 0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+8.4s 7 0.00s - to python to disable frozen modules.
+8.4s 8 0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+13.1s 9 Traceback (most recent call last):
+13.1s 10 File "<string>", line 1, in <module>
+13.1s 11 File "/usr/local/lib/python3.12/dist-packages/papermill/execute.py", line 131, in execute_notebook
+13.1s 12 raise_for_execution_errors(nb, output_path)
+13.1s 13 File "/usr/local/lib/python3.12/dist-packages/papermill/execute.py", line 251, in raise_for_execution_errors
+13.1s 14 raise error
+13.1s 15 papermill.exceptions.PapermillExecutionError:
+13.1s 16 ---------------------------------------------------------------------------
+13.1s 17 Exception encountered at "In [1]":
+13.1s 18 ---------------------------------------------------------------------------
+13.1s 19 ModuleNotFoundError                       Traceback (most recent call last)
+13.1s 20 /tmp/ipykernel_24/13711268.py in <cell line: 0>()
+13.1s 21 38 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+13.1s 22 39
+13.1s 23 ---> 40 from pmdarima import auto_arima
+13.1s 24 41
+13.1s 25 42 from sklearn.metrics import mean_squared_error
+13.1s 26 
+13.1s 27 ModuleNotFoundError: No module named 'pmdarima'
+13.1s 28 
+15.1s 29 /usr/local/lib/python3.12/dist-packages/mistune.py:435: SyntaxWarning: invalid escape sequence '\|'
+15.1s 30 cells[i][c] = re.sub('\\\\\|', '|', cell)
+15.3s 31 /usr/local/lib/python3.12/dist-packages/nbconvert/filters/filter_links.py:36: SyntaxWarning: invalid escape sequence '\_'
+15.3s 32 text = re.sub(r'_', '\_', text) # Escape underscores in display text
+15.8s 33 /usr/local/lib/python3.12/dist-packages/traitlets/traitlets.py:2915: FutureWarning: --Exporter.preprocessors=["remove_papermill_header.RemovePapermillHeader"] for containers is deprecated in traitlets 5.0. You can pass `--Exporter.preprocessors item` ... multiple times to add items to a list.
+15.8s 34 warn(
+15.9s 35 [NbConvertApp] Converting notebook __notebook__.ipynb to notebook
+16.1s 36 [NbConvertApp] Writing 63560 bytes to __notebook__.ipynb
+18.4s 37 /usr/local/lib/python3.12/dist-packages/traitlets/traitlets.py:2915: FutureWarning: --Exporter.preprocessors=["nbconvert.preprocessors.ExtractOutputPreprocessor"] for containers is deprecated in traitlets 5.0. You can pass `--Exporter.preprocessors item` ... multiple times to add items to a list.
+18.4s 38 warn(
+18.4s 39 [NbConvertApp] Converting notebook __notebook__.ipynb to html
+19.3s 40 [NbConvertApp] Writing 504866 bytes to __results__.html

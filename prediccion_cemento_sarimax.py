@@ -15,11 +15,12 @@
 # SECCIÓN 1: IMPORTACIONES
 # =============================================================================
 
+import subprocess, sys
+subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "pmdarima"])
+
 import os
 import time
 import warnings
-from pathlib import Path
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -513,7 +514,6 @@ def buscar_parametros_auto(
         trace          = True,
         suppress_warnings = True,
         error_action   = "ignore",
-        n_jobs         = -1,
     )
 
     elapsed = time.time() - t0
@@ -722,8 +722,6 @@ def grafico_08_comparacion_prueba(
     dir_salida: str,
 ) -> str:
     """Gráfico 8: Análisis detallado del conjunto de prueba — real vs predicho."""
-    errores = Y_test.values - test_pred.values
-
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     fig.suptitle(
         f"Análisis del Conjunto de Prueba — Real vs Predicho (RMSE={rmse_test:.2f})",
